@@ -118,6 +118,8 @@ type unreadsParams struct {
 	maxChannels           int
 	maxMessagesPerChannel int
 	mentionsOnly          bool
+	includeMuted          bool
+	mutedChannels         map[string]bool // populated at runtime from Slack prefs
 }
 
 type markParams struct {
@@ -635,6 +637,17 @@ func (ch *ConversationsHandler) ConversationsUnreadsHandler(ctx context.Context,
 
 	params := ch.parseParamsToolUnreads(request)
 
+	// Fetch muted channels unless the caller wants them included
+	if !params.includeMuted {
+		mutedChannels, err := ch.apiProvider.Slack().GetMutedChannels(ctx)
+		if err != nil {
+			ch.logger.Warn("Failed to fetch muted channels, proceeding without mute filter", zap.Error(err))
+		} else if len(mutedChannels) > 0 {
+			params.mutedChannels = mutedChannels
+			ch.logger.Debug("Loaded muted channels", zap.Int("count", len(mutedChannels)))
+		}
+	}
+
 	// Try ClientCounts first (works with xoxc/xoxd browser tokens)
 	counts, err := ch.apiProvider.Slack().ClientCounts(ctx)
 	if err != nil {
@@ -666,6 +679,11 @@ func (ch *ConversationsHandler) processClientCountsResponse(ctx context.Context,
 	// Process regular channels (public, private)
 	for _, snap := range counts.Channels {
 		if !snap.HasUnreads {
+			continue
+		}
+
+		// Skip muted channels (unless include_muted is set)
+		if params.mutedChannels[snap.ID] {
 			continue
 		}
 
@@ -712,6 +730,11 @@ func (ch *ConversationsHandler) processClientCountsResponse(ctx context.Context,
 			continue
 		}
 
+		// Skip muted channels (unless include_muted is set)
+		if params.mutedChannels[snap.ID] {
+			continue
+		}
+
 		// Priority Inbox: skip channels without @mentions
 		if params.mentionsOnly && snap.MentionCount == 0 {
 			continue
@@ -740,6 +763,11 @@ func (ch *ConversationsHandler) processClientCountsResponse(ctx context.Context,
 	// Process IMs (direct messages)
 	for _, snap := range counts.IMs {
 		if !snap.HasUnreads {
+			continue
+		}
+
+		// Skip muted channels (unless include_muted is set)
+		if params.mutedChannels[snap.ID] {
 			continue
 		}
 
@@ -876,6 +904,11 @@ func (ch *ConversationsHandler) getUnreadsViaConversationsInfo(ctx context.Conte
 	for channelID, cached := range channelsMaps.Channels {
 		if checkedCount >= params.maxChannels*2 {
 			break
+		}
+
+		// Skip muted channels (unless include_muted is set)
+		if params.mutedChannels[channelID] {
+			continue
 		}
 
 		channelType := ch.categorizeChannelForFallback(cached)
@@ -1484,6 +1517,7 @@ func (ch *ConversationsHandler) parseParamsToolUnreads(request mcp.CallToolReque
 		maxChannels:           request.GetInt("max_channels", 50),
 		maxMessagesPerChannel: request.GetInt("max_messages_per_channel", 10),
 		mentionsOnly:          request.GetBool("mentions_only", false),
+		includeMuted:          request.GetBool("include_muted", false),
 	}
 }
 
