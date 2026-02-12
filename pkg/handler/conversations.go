@@ -43,20 +43,20 @@ var validFilterKeys = map[string]struct{}{
 }
 
 type Message struct {
-	MsgID     string `json:"msgID"`
-	UserID    string `json:"userID"`
-	UserName  string `json:"userUser"`
-	RealName  string `json:"realName"`
-	Channel   string `json:"channelID"`
-	ThreadTs  string `json:"ThreadTs"`
-	Text      string `json:"text"`
-	Time      string `json:"time"`
-	Reactions string `json:"reactions,omitempty"`
-	BotName   string `json:"botName,omitempty"`
-	FileCount int    `json:"fileCount,omitempty"`
-	AttachmentIDs   string `json:"attachmentIDs,omitempty"`
-	HasMedia  bool   `json:"hasMedia,omitempty"`
-	Cursor    string `json:"cursor"`
+	MsgID         string `json:"msgID"`
+	UserID        string `json:"userID"`
+	UserName      string `json:"userUser"`
+	RealName      string `json:"realName"`
+	Channel       string `json:"channelID"`
+	ThreadTs      string `json:"ThreadTs"`
+	Text          string `json:"text"`
+	Time          string `json:"time"`
+	Reactions     string `json:"reactions,omitempty"`
+	BotName       string `json:"botName,omitempty"`
+	FileCount     int    `json:"fileCount,omitempty"`
+	AttachmentIDs string `json:"attachmentIDs,omitempty"`
+	HasMedia      bool   `json:"hasMedia,omitempty"`
+	Cursor        string `json:"cursor"`
 }
 
 type User struct {
@@ -793,10 +793,10 @@ func (ch *ConversationsHandler) processClientCountsResponse(ctx context.Context,
 	// Fetch messages for each unread channel
 	var allMessages []Message
 
-	for _, uc := range unreadChannels {
+	for i := range unreadChannels {
 		historyParams := slack.GetConversationHistoryParameters{
-			ChannelID: uc.ChannelID,
-			Oldest:    uc.LastRead,
+			ChannelID: unreadChannels[i].ChannelID,
+			Oldest:    unreadChannels[i].LastRead,
 			Limit:     params.maxMessagesPerChannel,
 			Inclusive: false,
 		}
@@ -804,16 +804,16 @@ func (ch *ConversationsHandler) processClientCountsResponse(ctx context.Context,
 		history, err := ch.apiProvider.Slack().GetConversationHistoryContext(ctx, &historyParams)
 		if err != nil {
 			ch.logger.Warn("Failed to get history for channel",
-				zap.String("channel", uc.ChannelID),
+				zap.String("channel", unreadChannels[i].ChannelID),
 				zap.Error(err))
 			continue
 		}
 
-		// Update unread count
-		uc.UnreadCount = len(history.Messages)
+		// Update unread count from actual message count
+		unreadChannels[i].UnreadCount = len(history.Messages)
 
 		// Convert messages
-		channelMessages := ch.convertMessagesFromHistory(history.Messages, uc.ChannelName, false)
+		channelMessages := ch.convertMessagesFromHistory(history.Messages, unreadChannels[i].ChannelName, false)
 		allMessages = append(allMessages, channelMessages...)
 	}
 
@@ -1131,19 +1131,19 @@ func (ch *ConversationsHandler) convertMessagesFromHistory(slackMessages []slack
 		attachmentIDsStr := strings.Join(attachmentIDs, ",")
 
 		messages = append(messages, Message{
-			MsgID:     msg.Timestamp,
-			UserID:    msg.User,
-			UserName:  userName,
-			RealName:  realName,
-			Text:      text.ProcessText(msgText),
-			Channel:   channel,
-			ThreadTs:  msg.ThreadTimestamp,
-			Time:      timestamp,
-			Reactions: reactionsString,
-			BotName:   botName,
-			FileCount: fileCount,
-			AttachmentIDs:   attachmentIDsStr,
-			HasMedia:  hasMedia,
+			MsgID:         msg.Timestamp,
+			UserID:        msg.User,
+			UserName:      userName,
+			RealName:      realName,
+			Text:          text.ProcessText(msgText),
+			Channel:       channel,
+			ThreadTs:      msg.ThreadTimestamp,
+			Time:          timestamp,
+			Reactions:     reactionsString,
+			BotName:       botName,
+			FileCount:     fileCount,
+			AttachmentIDs: attachmentIDsStr,
+			HasMedia:      hasMedia,
 		})
 	}
 
