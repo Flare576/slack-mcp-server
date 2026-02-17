@@ -1074,10 +1074,12 @@ func (ch *ConversationsHandler) scanTypeGroupForUnreads(
 	scanned := 0
 	rateLimited := 0
 
-	// Proactive rate limiter for conversations.info (Tier 3: ~50 req/min).
-	// Without this, the scan fires requests as fast as the network allows,
-	// triggering cascading 429s that silently skip channels.
-	rl := limiter.Tier3.Limiter()
+	// Separate rate limiters for conversations.info and conversations.history.
+	// Slack rate limits are per-method-per-workspace, so each method has its
+	// own Tier 3 budget (~50 req/min). Using a single shared limiter halves
+	// effective throughput when channels need both calls.
+	rlInfo := limiter.Tier3.Limiter()    // for conversations.info
+	rlHistory := limiter.Tier3.Limiter() // for conversations.history
 
 	// conversations.list returns channels in creation order (not by activity),
 	// so unread channels can appear anywhere. We scan up to budget*2 channels
@@ -1145,7 +1147,7 @@ func (ch *ConversationsHandler) scanTypeGroupForUnreads(
 			// Uses rate limiting + retry to avoid cascading 429 errors
 			// that silently skip channels (see: slack-go does NOT auto-retry
 			// on *RateLimitedError for standard client methods).
-			info, err := limiter.CallWithRetry(ctx, rl, 2, slackRetryAfter, func() (*slack.Channel, error) {
+			info, err := limiter.CallWithRetry(ctx, rlInfo, 2, slackRetryAfter, func() (*slack.Channel, error) {
 				return ch.apiProvider.Slack().GetConversationInfoContext(ctx, &slack.GetConversationInfoInput{
 					ChannelID: channel.ID,
 				})
@@ -1206,7 +1208,7 @@ func (ch *ConversationsHandler) scanTypeGroupForUnreads(
 					Limit:     params.maxMessagesPerChannel,
 					Inclusive: false,
 				}
-				history, err := limiter.CallWithRetry(ctx, rl, 2, slackRetryAfter, func() (*slack.GetConversationHistoryResponse, error) {
+				history, err := limiter.CallWithRetry(ctx, rlHistory, 2, slackRetryAfter, func() (*slack.GetConversationHistoryResponse, error) {
 					return ch.apiProvider.Slack().GetConversationHistoryContext(ctx, &historyParams)
 				})
 				apiCalls++
